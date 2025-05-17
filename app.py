@@ -474,9 +474,10 @@ def main():
             st.session_state.chat_history.append(("🤖", intro))
             st.session_state.context["next_action"] = "ask_job_title"
 
-        # 대화 출력
-        for sender, msg in st.session_state.chat_history:
-            st.chat_message("user" if sender == "🧑" else "assistant").write(msg)
+        # 대화 출력 - 채팅 기록의 각 메시지를 화면에 표시
+        for i, (sender, msg) in enumerate(st.session_state.chat_history):
+            with st.chat_message("user" if sender == "🧑" else "assistant"):
+                st.write(msg)
 
         # 단계 완료 확인 상태 초기화
         if "step_complete_confirmed" not in st.session_state:
@@ -486,31 +487,51 @@ def main():
         user_input = st.chat_input("답변을 입력해주세요...")
 
         if user_input:
-            st.session_state.chat_history.append(("🧑", user_input))
-            st.session_state.context["last_response"] = user_input
+            # 사용자 입력 처리 로직을 저장
+            temp_input = user_input
             
-            # 응답 분석 및 상태 업데이트
-            current_topic = st.session_state.context.get("current_topic")
-            if not current_topic and st.session_state.step == 2:
-                current_topic = "job_info"
-                st.session_state.context["current_topic"] = current_topic
-            
-            # 주제가 있을 경우에만 분석 수행
-            if current_topic:
-                is_complete, followup = analyze_response(user_input, current_topic)
+            # 세션 상태에 처리 플래그 추가
+            if "processing_input" not in st.session_state:
+                st.session_state.processing_input = False
+                st.session_state.last_user_input = ""
                 
-                if is_complete:
-                    st.session_state.step_complete_confirmed = True
-                    st.rerun()
-                else:
-                    # 부족한 정보에 대한 후속 질문
-                    bot_response = followup
-                    st.session_state.chat_history.append(("🤖", bot_response))
-                    st.session_state.context["last_response"] = bot_response
+            # 이전에 처리한 입력과 같은지 확인
+            if st.session_state.last_user_input == temp_input:
+                # 이미 처리된 입력이면 분석 진행
+                if st.session_state.processing_input:
+                    # 응답 분석 및 상태 업데이트
+                    current_topic = st.session_state.context.get("current_topic")
+                    if not current_topic and st.session_state.step == 2:
+                        current_topic = "job_info"
+                        st.session_state.context["current_topic"] = current_topic
+                    
+                    # 주제가 있을 경우에만 분석 수행
+                    if current_topic:
+                        is_complete, followup = analyze_response(temp_input, current_topic)
+                        
+                        if is_complete:
+                            st.session_state.step_complete_confirmed = True
+                            st.session_state.processing_input = False  # 처리 완료
+                            st.rerun()
+                        else:
+                            # 부족한 정보에 대한 후속 질문
+                            bot_response = followup
+                            st.session_state.chat_history.append(("🤖", bot_response))
+                            st.session_state.context["last_response"] = bot_response
+                            st.session_state.processing_input = False  # 처리 완료
+                            st.rerun()
+                    else:
+                        # 주제가 없는 경우 기본 응답
+                        st.session_state.step_complete_confirmed = True
+                        st.session_state.processing_input = False  # 처리 완료
+                        st.rerun()
             else:
-                # 주제가 없는 경우 기본 응답
-                st.session_state.step_complete_confirmed = True
-                st.rerun()
+                # 새로운 입력 처리
+                st.session_state.chat_history.append(("🧑", temp_input))
+                st.session_state.context["last_response"] = temp_input
+                st.session_state.last_user_input = temp_input
+                st.session_state.processing_input = True  # 처리 시작
+                st.rerun()  # 사용자 입력을 즉시 표시하기 위해 재실행
 
         # 단계 완료 확인 UI
         if st.session_state.step_complete_confirmed:
