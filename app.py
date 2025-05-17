@@ -499,7 +499,7 @@ def main():
         if user_input and not st.session_state.is_processing:
             # 사용자 입력 추가
             st.session_state.chat_history.append(("🧑", user_input))
-            
+
             # 처리 중으로 설정
             st.session_state.is_processing = True
             st.rerun()  # 사용자 입력과 로딩 표시 위해 재실행
@@ -562,9 +562,6 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("네, 다음 단계로 넘어갈게요"):
-                    # 처리 중 상태 표시
-                    st.session_state.is_processing = True
-                    
                     # 직무 정보 저장
                     if "job_info" in st.session_state.resume_data and "title" not in st.session_state.resume_data["job_info"] and len(st.session_state.chat_history) >= 2:
                         # 사용자의 첫 번째 응답을 직무로 저장
@@ -625,10 +622,8 @@ def main():
                     elif current_step == 6:  # 자기소개 완료
                         st.session_state.step = 7
                         st.session_state.context["next_action"] = "show_resume"
-                        
-                    # 처리 완료 후 상태 업데이트
-                    st.session_state.is_processing = False
                     
+                    # 상태 업데이트 및 재실행
                     st.session_state.step_complete_confirmed = False
                     st.rerun()
             
@@ -763,65 +758,47 @@ def main():
 
 def analyze_response(user_input: str, topic: str) -> tuple[bool, str]:
     """사용자 응답을 분석하고 수집된 정보 상태를 업데이트"""
-    # 직무 정보 저장
-    if topic == "job_info" and user_input:
-        # 기본 직무 정보 저장 (추가적인 분석 없이)
-        if "title" not in st.session_state.resume_data["job_info"]:
+    # 기본 설정: 질문 카운터 초기화
+    if "question_count" not in st.session_state:
+        st.session_state.question_count = {}
+    
+    if topic not in st.session_state.question_count:
+        st.session_state.question_count[topic] = 0
+    
+    # 직무 정보 특별 처리
+    if topic == "job_info":
+        # 직무 관련 키워드 확인
+        job_keywords = ["개발자", "프론트엔드", "백엔드", "풀스택", "데브옵스", "엔지니어", "PM", "PO", "기획자"]
+        
+        # 사용자가 직무명을 포함했는지 확인
+        if any(keyword in user_input for keyword in job_keywords):
             st.session_state.resume_data["job_info"]["title"] = user_input
-            
-        # 이미 직무를 입력했으면 자동 완료 처리
-        if "job_completed" not in st.session_state:
-            st.session_state.job_completed = False
-            
-        if not st.session_state.job_completed:
-            st.session_state.job_completed = True
-            # 간단한 확인 메시지 반환
-            return False, f"좋습니다! {user_input}로 지원하시는군요. 혹시 주로 사용하시는 기술 스택이나 라이브러리는 어떤 것들인가요?"
-        else:
-            # 단계 완료 처리
-            for field_name in st.session_state.collected_info["job_info"]:
-                st.session_state.collected_info["job_info"][field_name] = True
+            return False, f"{user_input}로 지원하시는군요. 해당 직무에서 주로 사용하시는 기술 스택이나 경험에 대해 알려주세요."
+        
+        # 이미 한 번 이상 대화했다면 단계 완료
+        st.session_state.question_count[topic] += 1
+        if st.session_state.question_count[topic] >= 2:
             return True, ""
-            
-    # 나머지 토픽들은 간단하게 처리 (현재 단계에서는 대부분의 입력을 충분한 것으로 처리)
-    default_followups = {
-        "experience": "이전 회사에서의 주요 성과나 배운 점이 있으신가요?",
-        "projects": "해당 프로젝트에서 특별히 기술적으로 어려웠던 부분이 있었나요?",
-        "skills": "이 기술들 중에서 가장 자신 있는 기술은 무엇인가요?",
-        "summary": "마지막으로, 지원하시는 직무에서 어떤 가치를 만들고 싶으신가요?"
+        
+        # 추가 질문
+        return False, "해당 직무에서 가장 중요한 기술이나 역량은 무엇이라고 생각하시나요?"
+    
+    # 나머지 토픽 처리 (단순화된 로직)
+    st.session_state.question_count[topic] += 1
+    
+    # 2번의 질문-응답 후 다음 단계로 이동
+    if st.session_state.question_count[topic] >= 2:
+        return True, ""
+    
+    # 첫 번째 질문 후 추가 질문
+    follow_up_questions = {
+        "experience": "해당 경험에서 가장 기억에 남는 성과나 어려움은 무엇이었나요?",
+        "projects": "이 프로젝트에서 본인의 역할과 기여한 부분을 좀 더 자세히 설명해주실 수 있을까요?",
+        "skills": "앞으로 발전시키고 싶은 기술 분야가 있으신가요?",
+        "summary": "앞으로의 커리어 목표나 발전 방향에 대해 말씀해주세요."
     }
     
-    # 질문 반복 방지
-    if "last_topic" not in st.session_state:
-        st.session_state.last_topic = None
-        st.session_state.topic_responses = {}
-        
-    if st.session_state.last_topic == topic:
-        if topic not in st.session_state.topic_responses:
-            st.session_state.topic_responses[topic] = 0
-        
-        st.session_state.topic_responses[topic] += 1
-        
-        # 같은 주제에 2번 이상 답변했으면 완료 처리
-        if st.session_state.topic_responses[topic] >= 2:
-            if topic in st.session_state.collected_info:
-                for field_name in st.session_state.collected_info[topic]:
-                    st.session_state.collected_info[topic][field_name] = True
-            return True, ""
-    
-    st.session_state.last_topic = topic
-    
-    # 무작위로 일부는 완료, 일부는 추가 질문 처리
-    import random
-    if random.random() < 0.3 and topic != "job_info":  # 30% 확률로 추가 질문
-        return False, default_followups.get(topic, "추가 정보를 더 알려주실 수 있을까요?")
-    
-    # 나머지는 완료 처리
-    if topic in st.session_state.collected_info:
-        for field_name in st.session_state.collected_info[topic]:
-            st.session_state.collected_info[topic][field_name] = True
-    
-    return True, ""
+    return False, follow_up_questions.get(topic, "조금 더 자세히 설명해주실 수 있을까요?")
 
 def generate_followup_question(previous_answer, topic):
     # 현재 단계의 수집 상태 확인
