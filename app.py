@@ -474,8 +474,13 @@ def main():
             st.session_state.chat_history.append(("🤖", intro))
             st.session_state.context["next_action"] = "ask_job_title"
 
+        # 디버깅 메시지 표시
+        if "debug_message" in st.session_state:
+            st.info(f"디버깅: {st.session_state.debug_message}")
+            
         # 단계 변경 시 안내 메시지 추가
         if "new_step" in st.session_state and st.session_state.new_step:
+            st.info(f"새 단계 시작: {st.session_state.step}")
             if st.session_state.step == 3:
                 step_intro = f"""이제 {st.session_state.resume_data['basic_info']['name']}님의 직장 경력에 대해 자세히 알아볼게요! 🌟
 
@@ -499,9 +504,10 @@ def main():
 {st.session_state.resume_data['basic_info']['name']}님의 강점과 특기를 중심으로 간단히 자기소개를 해주시겠어요?
 지원하시는 직무에서 본인이 가진 차별화된 역량이 있다면 함께 말씀해 주세요."""
 
-            if st.session_state.step in [3, 4, 5, 6] and "new_step" in st.session_state:
-                st.session_state.chat_history.append(("🤖", step_intro))
-                st.session_state.new_step = False
+            # 디버깅용: 메시지를 무조건 추가합니다
+            st.session_state.chat_history.append(("🤖", step_intro))
+            st.info(f"질문 추가됨: {st.session_state.step}")
+            st.session_state.new_step = False
 
         # 대화 출력
         for sender, msg in st.session_state.chat_history:
@@ -578,6 +584,8 @@ def main():
                         st.session_state.context["next_action"] = "show_resume"
                     
                     st.session_state.step_complete_confirmed = False
+                    # 디버깅용 메시지 추가
+                    st.session_state.debug_message = f"단계 전환: {current_step} → {st.session_state.step}, new_step: {st.session_state.new_step}"
                     st.rerun()
             
             with col2:
