@@ -466,7 +466,7 @@ def main():
         if not st.session_state.chat_history:
             intro = f"""안녕하세요 {st.session_state.resume_data['basic_info']['name']}님! 😊
 이력서 작성을 도와드릴게요. 차근차근 이야기 나누면서 좋은 이력서를 만들어보아요!
-
+아니 
 먼저, 어떤 직무에 지원하실 예정인가요?
 예시) `백엔드 개발자, DevOps 엔지니어`
 
@@ -481,6 +481,11 @@ def main():
         # 단계 변경 시 안내 메시지 추가
         if "new_step" in st.session_state and st.session_state.new_step:
             st.info(f"새 단계 시작: {st.session_state.step}")
+            
+            # 현재 주제 확인
+            current_topic = st.session_state.context.get("current_topic")
+            st.info(f"현재 주제: {current_topic}")
+            
             if st.session_state.step == 3:
                 step_intro = f"""이제 {st.session_state.resume_data['basic_info']['name']}님의 직장 경력에 대해 자세히 알아볼게요! 🌟
 
@@ -504,9 +509,9 @@ def main():
 {st.session_state.resume_data['basic_info']['name']}님의 강점과 특기를 중심으로 간단히 자기소개를 해주시겠어요?
 지원하시는 직무에서 본인이 가진 차별화된 역량이 있다면 함께 말씀해 주세요."""
 
-            # 디버깅용: 메시지를 무조건 추가합니다
+            # 메시지를 하나만 추가하기 위해 이전 체크 제거
             st.session_state.chat_history.append(("🤖", step_intro))
-            st.info(f"질문 추가됨: {st.session_state.step}")
+            st.info(f"질문 추가됨: {st.session_state.step}, 메시지 내용: {step_intro[:20]}...")
             st.session_state.new_step = False
 
         # 대화 출력
@@ -525,17 +530,30 @@ def main():
             st.session_state.context["last_response"] = user_input
             
             # 응답 분석 및 상태 업데이트
-            current_topic = st.session_state.context["current_topic"]
-            is_complete, followup = analyze_response(user_input, current_topic)
+            current_topic = st.session_state.context.get("current_topic")
+            if not current_topic and st.session_state.step == 2:
+                current_topic = "job_info"
+                st.session_state.context["current_topic"] = current_topic
+                
+            st.info(f"analyze_response 호출 - 현재 주제: {current_topic}")
             
-            if is_complete:
+            # 주제가 있을 경우에만 분석 수행
+            if current_topic:
+                is_complete, followup = analyze_response(user_input, current_topic)
+                
+                if is_complete:
+                    st.session_state.step_complete_confirmed = True
+                    st.rerun()
+                else:
+                    # 부족한 정보에 대한 후속 질문
+                    bot_response = followup
+                    st.session_state.chat_history.append(("🤖", bot_response))
+                    st.session_state.context["last_response"] = bot_response
+            else:
+                # 주제가 없는 경우 기본 응답
+                st.info("주제가 설정되지 않았습니다.")
                 st.session_state.step_complete_confirmed = True
                 st.rerun()
-            else:
-                # 부족한 정보에 대한 후속 질문
-                bot_response = followup
-                st.session_state.chat_history.append(("🤖", bot_response))
-                st.session_state.context["last_response"] = bot_response
 
         # 단계 완료 확인 UI
         if st.session_state.step_complete_confirmed:
@@ -560,25 +578,51 @@ def main():
                         st.session_state.current_question = 0
                         st.session_state.context["current_topic"] = "experience"
                         st.session_state.context["next_action"] = "ask_experience"
-                        st.session_state.new_step = True  # 새로운 단계로 전환 표시
+                        
+                        # 단계 3 경력 상세화 첫 질문 메시지 직접 추가
+                        intro_message = f"""이제 {st.session_state.resume_data['basic_info']['name']}님의 직장 경력에 대해 자세히 알아볼게요! 🌟
+
+지금까지 어떤 회사에서 근무하셨는지 말씀해 주실 수 있을까요?
+회사명, 담당 직무, 근무 기간, 주요 업무와 성과 등을 중심으로 설명해 주시면 좋겠어요."""
+                        st.session_state.chat_history.append(("🤖", intro_message))
+                        
                     elif current_step == 3:  # 경력 상세화 완료
                         st.session_state.step = 4
                         st.session_state.current_question = 0
                         st.session_state.context["current_topic"] = "projects"
                         st.session_state.context["next_action"] = "ask_projects"
-                        st.session_state.new_step = True  # 새로운 단계로 전환 표시
+                        
+                        # 단계 4 프로젝트 첫 질문 메시지 직접 추가
+                        intro_message = f"""이번에는 주요 프로젝트 경험에 대해 이야기 나눠볼까요? 🚀
+
+진행했던 프로젝트 중에서 기술적으로 가장 도전적이었거나 의미 있었던 프로젝트를 소개해 주세요.
+프로젝트명, 목적, 사용한 기술 스택, 본인의 역할, 그리고 달성한 성과를 간단히 소개해 주시면 좋겠어요."""
+                        st.session_state.chat_history.append(("🤖", intro_message))
+                        
                     elif current_step == 4:  # 프로젝트 완료
                         st.session_state.step = 5
                         st.session_state.current_question = 0
                         st.session_state.context["current_topic"] = "skills"
                         st.session_state.context["next_action"] = "ask_skills"
-                        st.session_state.new_step = True  # 새로운 단계로 전환 표시
+                        
+                        # 단계 5 기술 스택 첫 질문 메시지 직접 추가
+                        intro_message = f"""이제 {st.session_state.resume_data['basic_info']['name']}님의 기술 스택에 대해 알아볼게요! 💻
+
+주로 사용하시는 기술 스택은 무엇인가요? 각 기술에 대한 숙련도도 함께 말씀해 주시면 도움이 될 것 같아요."""
+                        st.session_state.chat_history.append(("🤖", intro_message))
+                        
                     elif current_step == 5:  # 기술 스택 완료
                         st.session_state.step = 6
                         st.session_state.current_question = 0
                         st.session_state.context["current_topic"] = "summary"
                         st.session_state.context["next_action"] = "ask_summary"
-                        st.session_state.new_step = True  # 새로운 단계로 전환 표시
+                        
+                        # 단계 6 자기소개 첫 질문 메시지 직접 추가
+                        intro_message = f"""마지막으로 자기소개를 작성해볼까요? ✨
+
+{st.session_state.resume_data['basic_info']['name']}님의 강점과 특기를 중심으로 간단히 자기소개를 해주시겠어요?
+지원하시는 직무에서 본인이 가진 차별화된 역량이 있다면 함께 말씀해 주세요."""
+                        st.session_state.chat_history.append(("🤖", intro_message))
                     elif current_step == 6:  # 자기소개 완료
                         st.session_state.step = 7
                         st.session_state.context["next_action"] = "show_resume"
