@@ -565,6 +565,13 @@ def main():
                     # 처리 중 상태 표시
                     st.session_state.is_processing = True
                     
+                    # 직무 정보 저장
+                    if "job_info" in st.session_state.resume_data and "title" not in st.session_state.resume_data["job_info"] and len(st.session_state.chat_history) >= 2:
+                        # 사용자의 첫 번째 응답을 직무로 저장
+                        user_responses = [msg for sender, msg in st.session_state.chat_history if sender == "🧑"]
+                        if user_responses:
+                            st.session_state.resume_data["job_info"]["title"] = user_responses[0]
+                    
                     if current_step == 2:  # 직무 확인 완료
                         st.session_state.step = 3
                         st.session_state.current_question = 0
@@ -756,77 +763,65 @@ def main():
 
 def analyze_response(user_input: str, topic: str) -> tuple[bool, str]:
     """사용자 응답을 분석하고 수집된 정보 상태를 업데이트"""
-    try:
-        # 기본 필드 정의가 있는지 확인
-        if topic not in FIELD_DEFINITIONS:
+    # 직무 정보 저장
+    if topic == "job_info" and user_input:
+        # 기본 직무 정보 저장 (추가적인 분석 없이)
+        if "title" not in st.session_state.resume_data["job_info"]:
+            st.session_state.resume_data["job_info"]["title"] = user_input
+            
+        # 이미 직무를 입력했으면 자동 완료 처리
+        if "job_completed" not in st.session_state:
+            st.session_state.job_completed = False
+            
+        if not st.session_state.job_completed:
+            st.session_state.job_completed = True
+            # 간단한 확인 메시지 반환
+            return False, f"좋습니다! {user_input}로 지원하시는군요. 혹시 주로 사용하시는 기술 스택이나 라이브러리는 어떤 것들인가요?"
+        else:
+            # 단계 완료 처리
+            for field_name in st.session_state.collected_info["job_info"]:
+                st.session_state.collected_info["job_info"][field_name] = True
             return True, ""
             
-        current_fields = FIELD_DEFINITIONS.get(topic, [])
-        all_fields_complete = True
+    # 나머지 토픽들은 간단하게 처리 (현재 단계에서는 대부분의 입력을 충분한 것으로 처리)
+    default_followups = {
+        "experience": "이전 회사에서의 주요 성과나 배운 점이 있으신가요?",
+        "projects": "해당 프로젝트에서 특별히 기술적으로 어려웠던 부분이 있었나요?",
+        "skills": "이 기술들 중에서 가장 자신 있는 기술은 무엇인가요?",
+        "summary": "마지막으로, 지원하시는 직무에서 어떤 가치를 만들고 싶으신가요?"
+    }
+    
+    # 질문 반복 방지
+    if "last_topic" not in st.session_state:
+        st.session_state.last_topic = None
+        st.session_state.topic_responses = {}
         
-        if not current_fields:
-            # 필드가 없는 경우 완료 처리
-            return True, ""
+    if st.session_state.last_topic == topic:
+        if topic not in st.session_state.topic_responses:
+            st.session_state.topic_responses[topic] = 0
         
-        # 무한 루프 방지
-        max_attempts = 3
-        attempts = 0
-            
-        for field_name, field_description in current_fields:
-            attempts += 1
-            if attempts > max_attempts:
-                break
-                
-            # 각 필드별 분석
-            prompt = f"""
-            사용자 응답: "{user_input}"
-            
-            다음 필드에 대한 정보가 충분한지 분석해주세요:
-            필드명: {field_name}
-            설명: {field_description}
-            
-            응답 형식:
-            - 충분한 정보가 있다면: [YES][ENOUGH]
-            - 일부 정보가 있지만 더 필요하다면: [YES][NEED_MORE]
-            - 정보가 없다면: [NO]
-            """
-            
-            try:
-                response = model.generate_content(prompt)
-                analysis = response.text.strip()
-                
-                # 분석 결과에 따른 상태 업데이트
-                if "[YES][ENOUGH]" in analysis:
+        st.session_state.topic_responses[topic] += 1
+        
+        # 같은 주제에 2번 이상 답변했으면 완료 처리
+        if st.session_state.topic_responses[topic] >= 2:
+            if topic in st.session_state.collected_info:
+                for field_name in st.session_state.collected_info[topic]:
                     st.session_state.collected_info[topic][field_name] = True
-                elif "[YES][NEED_MORE]" in analysis or "[NO]" in analysis:
-                    all_fields_complete = False
-                    # 부족한 필드에 대한 후속 질문 생성
-                    followup_prompt = f"""
-                    이전 응답: "{user_input}"
-                    
-                    다음 필드에 대한 추가 정보를 요청하는 질문을 생성해주세요:
-                    필드명: {field_name}
-                    설명: {field_description}
-                    
-                    질문은 자연스럽고 친근한 말투로 작성해주세요.
-                    """
-                    followup_response = model.generate_content(followup_prompt)
-                    return False, followup_response.text.strip()
-            except Exception as e:
-                # 개별 분석 실패 시 기본 응답 제공
-                default_questions = {
-                    "job_info": "어떤 기술을 주로 사용하시나요?",
-                    "experience": "어떤 경력을 가지고 계신가요?",
-                    "projects": "주요 프로젝트에 대해 더 자세히 설명해주실 수 있을까요?",
-                    "skills": "어떤 기술 스택을 보유하고 계신가요?",
-                    "summary": "간단한 자기소개를 해주실 수 있을까요?"
-                }
-                return False, default_questions.get(topic, "더 자세한 정보를 알려주실 수 있을까요?")
-        
-        return all_fields_complete, ""
-    except Exception as e:
-        # 전체 함수 실패 시 기본 메시지 반환
-        return False, f"더 자세히 알려주실 수 있을까요? (오류가 발생했지만 계속 진행할게요)"
+            return True, ""
+    
+    st.session_state.last_topic = topic
+    
+    # 무작위로 일부는 완료, 일부는 추가 질문 처리
+    import random
+    if random.random() < 0.3 and topic != "job_info":  # 30% 확률로 추가 질문
+        return False, default_followups.get(topic, "추가 정보를 더 알려주실 수 있을까요?")
+    
+    # 나머지는 완료 처리
+    if topic in st.session_state.collected_info:
+        for field_name in st.session_state.collected_info[topic]:
+            st.session_state.collected_info[topic][field_name] = True
+    
+    return True, ""
 
 def generate_followup_question(previous_answer, topic):
     # 현재 단계의 수집 상태 확인
