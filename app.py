@@ -34,8 +34,7 @@ if "step" not in st.session_state:
         "projects": [],
         "skills": [],
         "certificates": [],
-        "summary": "",
-        "style": ""
+        "summary": ""
     }
     st.session_state.current_question = 0
     st.session_state.context = {
@@ -46,7 +45,7 @@ if "step" not in st.session_state:
 
 # 진행 상태 표시
 def show_progress():
-    steps = ["기본 정보", "직무 확인", "경력 상세화", "프로젝트", "기술 스택", "자기소개", "스타일 선택"]
+    steps = ["기본 정보", "직무 확인", "경력 상세화", "프로젝트", "기술 스택", "자기소개"]
     current_step = st.session_state.step
     st.progress(current_step / len(steps))
     st.caption(f"Step {current_step}/{len(steps)}: {steps[current_step-1]}")
@@ -67,8 +66,91 @@ QUESTIONS = {
         "API 개발 경험이 있으신가요? 있다면 어떤 종류의 API를 개발해보셨는지 알려주세요.",
         "데이터베이스 관련 경험은 어떠신가요? 어떤 데이터베이스를 사용해보셨고, 데이터 모델링이나 쿼리 최적화 경험이 있으신지 궁금합니다.",
         "혹시 백엔드 개발과 관련된 자격증이나 수상 경력이 있으신가요?"
+    ],
+    "experience": [
+        "가장 최근에 수행하신 프로젝트나 업무에 대해 설명해주세요. 어떤 역할을 맡으셨고, 어떤 성과를 이루셨나요?",
+        "이전 프로젝트에서 가장 어려웠던 기술적 도전과 그것을 어떻게 해결하셨는지 설명해주세요.",
+        "팀 프로젝트에서 협업 경험에 대해 말씀해주세요. 특히 기술적 의사결정이나 문제 해결 과정에서의 경험을 중심으로 설명해주시면 좋겠습니다."
+    ],
+    "projects": [
+        "가장 자신 있는 프로젝트 하나를 선정해서, 프로젝트의 목적, 사용한 기술 스택, 본인의 역할, 그리고 달성한 성과를 구체적으로 설명해주세요.",
+        "프로젝트 진행 중 발생했던 주요 문제점과 그 해결 과정을 설명해주세요.",
+        "프로젝트에서 개선한 성능이나 품질 관련 사례가 있다면 말씀해주세요."
+    ],
+    "skills": [
+        "주요 기술 스택과 각 기술에 대한 숙련도를 설명해주세요.",
+        "최근에 새롭게 학습하거나 향상시킨 기술이 있다면 말씀해주세요.",
+        "향후 발전시키고 싶은 기술 영역은 무엇인가요?"
+    ],
+    "summary": [
+        "자신의 강점과 특기를 중심으로 간단한 자기소개를 해주세요.",
+        "지원하시는 직무에서 본인이 가진 차별화된 경험이나 역량은 무엇인가요?",
+        "앞으로의 커리어 목표는 무엇인가요?"
     ]
 }
+
+# 이력서 생성 관련 함수들
+def validate_resume_data(data):
+    required_fields = {
+        "basic_info": ["name", "email"],
+        "job_info": ["title"],
+        "summary": [],
+        "experience": [],
+        "projects": [],
+        "skills": []
+    }
+    
+    missing_fields = []
+    for section, fields in required_fields.items():
+        if not data.get(section):
+            missing_fields.append(section)
+        elif fields:
+            for field in fields:
+                if not data[section].get(field):
+                    missing_fields.append(f"{section}.{field}")
+    
+    return missing_fields
+
+def build_resume_text(data):
+    try:
+        basic_info = data.get("basic_info", {})
+        job_info = data.get("job_info", {})
+        
+        resume_text = f"""
+[인적사항]
+이름: {basic_info.get('name', '미입력')}
+이메일: {basic_info.get('email', '미입력')}
+전화번호: {basic_info.get('phone', '미입력')}
+포트폴리오: {basic_info.get('portfolio', '없음')}
+
+[지원 직무]
+직무: {job_info.get('title', '미입력')}
+주요 기술: {job_info.get('answer_0', '미입력')}
+주요 경험: {job_info.get('answer_1', '미입력')}
+
+[자기소개]
+{chr(10).join(data.get('summary', ['자기소개가 아직 작성되지 않았습니다.']))}
+
+[경력 및 프로젝트 경험]
+"""
+        # 경력 정보 추가
+        for i, exp in enumerate(data.get("experience", []), 1):
+            resume_text += f"{i}. {exp}\n"
+
+        resume_text += "\n[프로젝트 경험]\n"
+        # 프로젝트 정보 추가
+        for i, proj in enumerate(data.get("projects", []), 1):
+            resume_text += f"{i}. {proj}\n"
+
+        resume_text += "\n[기술 스택]\n"
+        # 기술 스택 추가
+        for skill in data.get("skills", []):
+            resume_text += f"- {skill}\n"
+
+        return resume_text
+    except Exception as e:
+        st.error(f"이력서 생성 중 오류가 발생했습니다: {str(e)}")
+        return None
 
 # ReAct 기반 프롬프트 생성
 def create_react_prompt(user_input, context):
@@ -84,36 +166,159 @@ def create_react_prompt(user_input, context):
         포트폴리오: {basic_info.get('portfolio', '')}
         """
 
+    # 직무 정보가 있는 경우 포함
+    job_info_section = ""
+    if st.session_state.resume_data.get("job_info"):
+        job_info = st.session_state.resume_data["job_info"]
+        job_info_section = f"""
+        지원 직무 정보:
+        직무: {job_info.get('title', '')}
+        기술 스택: {job_info.get('answer_0', '')}
+        주요 경험: {job_info.get('answer_1', '')}
+        API 경험: {job_info.get('answer_2', '')}
+        DB 경험: {job_info.get('answer_3', '')}
+        자격증/수상: {job_info.get('answer_4', '')}
+        """
+
+    # 현재 단계에 따른 추가 컨텍스트와 완료 조건
+    step_context = ""
+    completion_criteria = ""
+    if st.session_state.step == 2:  # 직무 확인 단계
+        step_context = "지금은 직무에 대해 알아보는 중이에요. 어떤 일을 하고 싶으신지, 어떤 경험이 있으신지 차근차근 이야기해주세요."
+        completion_criteria = """
+        다음 내용들이 잘 파악되면 'STEP_COMPLETE'를 포함해서 답변해주세요:
+        1. 어떤 직무를 원하시는지
+        2. 어떤 기술을 잘 다루시는지
+        3. 어떤 경험이 있으신지
+        4. API나 DB 관련 경험은 어떤지
+        5. 자격증이나 수상 경력이 있으신지
+        """
+    elif st.session_state.step == 3:  # 경력 상세화
+        step_context = "이제 경력에 대해 자세히 알아볼게요. 어떤 일을 하셨고, 어떤 성과를 이루셨는지 이야기해주세요."
+        completion_criteria = """
+        다음 내용들이 잘 파악되면 'STEP_COMPLETE'를 포함해서 답변해주세요:
+        1. 최근에 어떤 일을 하셨는지
+        2. 어떤 어려움을 겪으셨고 어떻게 해결하셨는지
+        3. 팀에서 어떻게 일하셨는지
+        """
+    elif st.session_state.step == 4:  # 프로젝트
+        step_context = "프로젝트 경험에 대해 이야기해주세요. 어떤 프로젝트를 진행하셨고, 어떤 역할을 맡으셨나요?"
+        completion_criteria = """
+        다음 내용들이 잘 파악되면 'STEP_COMPLETE'를 포함해서 답변해주세요:
+        1. 어떤 프로젝트를 했는지
+        2. 프로젝트에서 어떤 문제를 해결하셨는지
+        3. 어떤 성과를 이루셨는지
+        """
+    elif st.session_state.step == 5:  # 기술 스택
+        step_context = "이제 기술 스택에 대해 이야기해주세요. 어떤 기술을 잘 다루시고, 어떤 기술을 더 배우고 싶으신가요?"
+        completion_criteria = """
+        다음 내용들이 잘 파악되면 'STEP_COMPLETE'를 포함해서 답변해주세요:
+        1. 어떤 기술을 잘 다루시는지
+        2. 각 기술의 숙련도는 어느 정도인지
+        3. 최근에 새로 배운 기술이 있다면 어떤 것인지
+        4. 앞으로 어떤 기술을 더 배우고 싶으신지
+        """
+    elif st.session_state.step == 6:  # 자기소개
+        step_context = "마지막으로 자기소개를 작성해볼게요. 어떤 강점이 있으시고, 어떤 목표를 가지고 계신가요?"
+        completion_criteria = """
+        다음 내용들이 잘 파악되면 'STEP_COMPLETE'를 포함해서 답변해주세요:
+        1. 어떤 강점과 특기가 있는지
+        2. 다른 사람과 차별화되는 점은 무엇인지
+        3. 앞으로 어떤 목표를 가지고 계신지
+        """
+
+    # 추가 정보 요청 시 컨텍스트
+    if context.get("next_action") == "ask_more_info":
+        current_step = st.session_state.step
+        last_response = context.get("last_response", "")
+        
+        # 이전 대화 내용 분석
+        chat_history = st.session_state.chat_history
+        recent_responses = [msg for sender, msg in chat_history[-4:] if sender == "🧑"]  # 최근 사용자 응답 2개
+        
+        if current_step == 2:  # 직무 확인
+            if "백엔드" in last_response.lower():
+                step_context = "백엔드 개발자에 대해 더 자세히 이야기해주세요. 주로 어떤 백엔드 기술을 사용해보셨나요? (예: Spring, Django, Node.js 등)"
+            elif "프론트엔드" in last_response.lower():
+                step_context = "프론트엔드 개발자에 대해 더 자세히 이야기해주세요. 주로 어떤 프레임워크를 사용해보셨나요? (예: React, Vue, Angular 등)"
+            elif "데브옵스" in last_response.lower():
+                step_context = "DevOps 엔지니어에 대해 더 자세히 이야기해주세요. 어떤 클라우드 플랫폼을 사용해보셨나요? (예: AWS, Azure, GCP 등)"
+            else:
+                step_context = "해당 직무에 대해 더 자세히 이야기해주세요. 어떤 기술이나 도구를 주로 사용하시나요?"
+
+        elif current_step == 3:  # 경력 상세화
+            # 이전 응답에서 언급된 기술이나 프로젝트를 반영
+            mentioned_tech = [tech for tech in ["Java", "Python", "JavaScript", "Spring", "Django", "React"] if tech.lower() in last_response.lower()]
+            if mentioned_tech:
+                tech_str = ", ".join(mentioned_tech)
+                step_context = f"{tech_str}를 사용하신 경험이 있으시군요! 이 기술을 활용한 프로젝트에서 어떤 문제를 해결하기 위해 선택하셨나요?"
+            else:
+                step_context = "경력에 대해 더 자세히 이야기해주세요. 가장 기억에 남는 프로젝트나 업무는 무엇인가요?"
+
+        elif current_step == 4:  # 프로젝트
+            # 이전 응답에서 언급된 프로젝트 유형이나 기술을 반영
+            if "웹" in last_response.lower():
+                step_context = "웹 프로젝트에 대해 더 자세히 이야기해주세요. 어떤 기술 스택을 사용하셨나요?"
+            elif "모바일" in last_response.lower():
+                step_context = "모바일 앱 프로젝트에 대해 더 자세히 이야기해주세요. 어떤 플랫폼을 타겟으로 하셨나요? (iOS/Android)"
+            else:
+                step_context = "프로젝트에 대해 더 자세히 이야기해주세요. 프로젝트의 규모나 기간은 어땠나요?"
+
+        elif current_step == 5:  # 기술 스택
+            # 이전 응답에서 언급된 기술을 반영
+            mentioned_tech = [tech for tech in ["Java", "Python", "JavaScript", "Spring", "Django", "React"] if tech.lower() in last_response.lower()]
+            if mentioned_tech:
+                tech_str = ", ".join(mentioned_tech)
+                step_context = f"{tech_str}에 대해 더 자세히 이야기해주세요. 이 기술을 얼마나 오래 사용해보셨나요?"
+            else:
+                step_context = "기술 스택에 대해 더 자세히 이야기해주세요. 각 기술을 얼마나 오래 사용해보셨나요?"
+
+        elif current_step == 6:  # 자기소개
+            # 이전 응답에서 언급된 강점이나 목표를 반영
+            if "강점" in last_response.lower() or "특기" in last_response.lower():
+                step_context = "강점에 대해 더 자세히 이야기해주세요. 이 강점이 실제 프로젝트에서 어떻게 발휘되었나요?"
+            elif "목표" in last_response.lower() or "계획" in last_response.lower():
+                step_context = "커리어 목표에 대해 더 자세히 이야기해주세요. 이 목표를 이루기 위해 어떤 계획을 세우고 계신가요?"
+            else:
+                step_context = "자기소개에 대해 더 자세히 이야기해주세요. 어떤 강점이 지원하는 직무에 도움이 될 것 같으신가요?"
+
     return f"""
-    당신은 IT 이력서 작성을 도와주는 친절한 챗봇입니다. 사용자의 경험과 역량을 자연스럽게 파악하고 이력서를 작성해주세요.
+    당신은 IT 이력서 작성을 도와주는 친근한 챗봇입니다. 사용자와 자연스럽게 대화하면서 경험과 역량을 파악해주세요.
 
     {basic_info_section}
+    {job_info_section}
 
     현재 상황:
     - 단계: {st.session_state.step}
     - 현재 주제: {context['current_topic']}
     - 마지막 응답: {context['last_response']}
     - 다음 행동: {context['next_action']}
+    {step_context}
+    {completion_criteria}
 
     사용자 입력: "{user_input}"
 
     대화 규칙:
-    - 항상 친절하고 자연스러운 말투를 사용하세요.
-    - 한 번에 하나의 질문만 하세요.
-    - 사용자의 답변을 바탕으로 자연스럽게 다음 질문으로 이어가세요.
-    - IT 직무에 관련된 전문적인 내용을 다루되, 이해하기 쉽게 설명하세요.
-    - 사용자의 답변이 불충분하다면, 구체적인 예시를 들어 추가 질문을 하세요.
+    - 친근하고 자연스러운 말투를 사용하세요. 예를 들어 '~해주세요' 대신 '~해볼까요?', '~하시나요?' 등을 사용하세요.
+    - 반드시 한 번에 하나의 질문만 하세요. 여러 질문을 한꺼번에 하지 마세요.
+    - 사용자의 답변을 잘 듣고 공감하는 태도로 대화를 이어가세요.
+    - IT 관련 내용을 다룰 때도 쉽고 친근하게 설명해주세요.
+    - 사용자의 답변이 짧다면, 구체적인 예시를 들어 더 자세히 이야기해볼 수 있도록 유도하세요.
+    - 추가 정보를 요청할 때는 이전 대화 내용을 반영하여 자연스럽게 이어가세요.
+    - 사용자가 언급한 기술이나 경험을 기억하고, 그것을 바탕으로 다음 질문을 이어가세요.
+    - 각 단계에서 필요한 정보를 하나씩 순차적으로 수집하세요.
 
     이력서 작성 가이드라인:
-    - STAR 방식(상황, 과제, 행동, 결과)을 따르세요.
-    - 구체적인 수치와 성과를 포함하도록 유도하세요.
-    - 기술 스택과 경험을 명확하게 파악하세요.
-    - 프로젝트의 규모와 기간을 확인하세요.
+    - STAR 방식(상황, 과제, 행동, 결과)을 자연스럽게 대화에 녹여주세요.
+    - 구체적인 수치나 성과를 이야기할 수 있도록 도와주세요.
+    - 기술 스택과 경험을 명확하게 파악하되, 대화가 딱딱하지 않도록 해주세요.
+    - 프로젝트의 규모나 기간을 자연스럽게 물어보세요.
 
     내부 처리 과정:
-    1. 현재 상황을 분석하고 다음 단계를 결정하세요.
-    2. 결정된 단계에 따라 자연스러운 대화를 이어가세요.
-    3. 사용자의 응답을 관찰하고 다음 단계를 계획하세요.
+    1. 현재 상황을 파악하고 다음 질문을 준비하세요.
+    2. 대화가 자연스럽게 이어지도록 해주세요.
+    3. 사용자의 응답을 잘 듣고 이해한 후 다음 단계를 계획하세요.
+    4. 필요한 정보가 모두 수집되었다고 판단되면 'STEP_COMPLETE'를 포함해서 답변하세요.
 
     다음 응답을 생성해주세요:
     """
@@ -189,18 +394,23 @@ def main():
     else:
         # 챗봇 환영 메시지
         if not st.session_state.chat_history:
-            intro = f"""안녕하세요 {st.session_state.resume_data['basic_info']['name']}님! 이제부터 IT 이력서를 작성해드릴게요.
+            intro = f"""안녕하세요 {st.session_state.resume_data['basic_info']['name']}님! 😊
+이력서 작성을 도와드릴게요. 차근차근 이야기 나누면서 좋은 이력서를 만들어보아요!
 
 먼저, 어떤 직무에 지원하실 예정인가요?
 예시) `백엔드 개발자, DevOps 엔지니어`
 
-위 예시 중에서 선택하시거나, 다른 직무를 말씀해 주셔도 됩니다."""
+위 예시 중에서 선택하시거나, 다른 직무를 말씀해 주셔도 좋아요!"""
             st.session_state.chat_history.append(("🤖", intro))
             st.session_state.context["next_action"] = "ask_job_title"
 
         # 대화 출력
         for sender, msg in st.session_state.chat_history:
             st.chat_message("user" if sender == "🧑" else "assistant").write(msg)
+
+        # 단계 완료 확인 상태 초기화
+        if "step_complete_confirmed" not in st.session_state:
+            st.session_state.step_complete_confirmed = False
 
         # 입력창
         user_input = st.chat_input("답변을 입력해주세요...")
@@ -217,24 +427,175 @@ def main():
             st.session_state.chat_history.append(("🤖", bot_response))
             st.session_state.context["last_response"] = bot_response
             
-            # 사용자 응답 저장
-            if st.session_state.step == 2:
-                if "job_info" not in st.session_state.resume_data:
-                    st.session_state.resume_data["job_info"] = {"title": user_input}
-                    st.session_state.context["current_topic"] = "job_title"
-                    st.session_state.context["next_action"] = "ask_tech_stack"
-                else:
-                    current_q = st.session_state.current_question
-                    st.session_state.resume_data["job_info"][f"answer_{current_q}"] = user_input
-                    st.session_state.current_question += 1
-                    
-                    # 다음 행동 결정
-                    if st.session_state.current_question < len(QUESTIONS["job_info"]):
-                        st.session_state.context["next_action"] = f"ask_question_{st.session_state.current_question}"
-                    else:
-                        st.session_state.context["next_action"] = "summarize_and_confirm"
+            # 단계 완료 확인 및 다음 단계로 전환
+            if "STEP_COMPLETE" in bot_response:
+                st.session_state.step_complete_confirmed = True
+                st.rerun()
+
+        # 단계 완료 확인 UI
+        if st.session_state.step_complete_confirmed:
+            current_step = st.session_state.step
+            step_names = {
+                2: "직무 확인",
+                3: "경력 상세화",
+                4: "프로젝트",
+                5: "기술 스택",
+                6: "자기소개"
+            }
             
-            st.rerun()
+            st.divider()
+            st.subheader(f"📝 {step_names.get(current_step, '')} 단계 완료")
+            st.write("지금까지 이야기해주신 내용이 충분해 보여요. 다음 단계로 넘어갈까요?")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("네, 다음 단계로 넘어갈게요"):
+                    if current_step == 2:  # 직무 확인 완료
+                        st.session_state.step = 3
+                        st.session_state.current_question = 0
+                        st.session_state.context["current_topic"] = "experience"
+                        st.session_state.context["next_action"] = "ask_experience"
+                    elif current_step == 3:  # 경력 상세화 완료
+                        st.session_state.step = 4
+                        st.session_state.current_question = 0
+                        st.session_state.context["current_topic"] = "projects"
+                        st.session_state.context["next_action"] = "ask_projects"
+                    elif current_step == 4:  # 프로젝트 완료
+                        st.session_state.step = 5
+                        st.session_state.current_question = 0
+                        st.session_state.context["current_topic"] = "skills"
+                        st.session_state.context["next_action"] = "ask_skills"
+                    elif current_step == 5:  # 기술 스택 완료
+                        st.session_state.step = 6
+                        st.session_state.current_question = 0
+                        st.session_state.context["current_topic"] = "summary"
+                        st.session_state.context["next_action"] = "ask_summary"
+                    elif current_step == 6:  # 자기소개 완료
+                        st.session_state.step = 7
+                        st.session_state.context["next_action"] = "show_resume"
+                    
+                    st.session_state.step_complete_confirmed = False
+                    st.rerun()
+            
+            with col2:
+                if st.button("아니요, 더 이야기할게 남았어요"):
+                    st.session_state.step_complete_confirmed = False
+                    st.session_state.context["next_action"] = "ask_more_info"
+                    st.rerun()
+
+    # Step 7은 이제 결과 출력으로 바로 연결됨
+    if st.session_state.step == 7:
+        st.session_state.step = 8
+        st.session_state.context["next_action"] = "show_resume"
+        st.rerun()
+
+    # Step 8: 이력서 구성 요소별 출력
+    if st.session_state.step == 8:
+        st.title("📄 이력서 항목별 정리")
+        st.progress(1.0)
+        st.caption("Step 8/8: 이력서 최종 확인")
+
+        data = st.session_state.resume_data
+        basic_info = data.get("basic_info", {})
+        job_info = data.get("job_info", {})
+
+        # 데이터 검증
+        missing_fields = validate_resume_data(data)
+        if missing_fields:
+            st.warning(f"다음 항목이 누락되었습니다: {', '.join(missing_fields)}")
+            if st.button("누락된 항목 입력하기"):
+                st.session_state.step = 1
+                st.rerun()
+
+        # 1. 인적사항
+        with st.expander("1. 인적사항", expanded=True):
+            st.markdown(f"""
+            **이름**: {basic_info.get('name', '미입력')}  
+            **이메일**: {basic_info.get('email', '미입력')}  
+            **전화번호**: {basic_info.get('phone', '미입력')}  
+            **포트폴리오**: {basic_info.get('portfolio', '없음')}
+            """)
+            if st.button("인적사항 수정"):
+                st.session_state.step = 1
+                st.rerun()
+
+        # 2. 지원 직무
+        with st.expander("2. 지원 직무", expanded=True):
+            st.markdown(f"""
+            **직무**: {job_info.get('title', '미입력')}  
+            **주요 기술**: {job_info.get('answer_0', '미입력')}  
+            **주요 경험**: {job_info.get('answer_1', '미입력')}
+            """)
+            if st.button("직무 정보 수정"):
+                st.session_state.step = 2
+                st.rerun()
+
+        # 3. 자기소개
+        with st.expander("3. 자기소개", expanded=True):
+            summary = data.get("summary", [])
+            if summary:
+                st.markdown("\n".join(summary))
+            else:
+                st.info("자기소개가 아직 작성되지 않았습니다.")
+            if st.button("자기소개 수정"):
+                st.session_state.step = 6
+                st.rerun()
+
+        # 4. 경력 요약
+        with st.expander("4. 경력 및 프로젝트 경험", expanded=True):
+            experiences = data.get("experience", [])
+            if experiences:
+                for i, exp in enumerate(experiences, 1):
+                    st.markdown(f"**{i}.** {exp}")
+            else:
+                st.info("아직 입력된 경력 정보가 없습니다.")
+            if st.button("경력 정보 수정"):
+                st.session_state.step = 3
+                st.rerun()
+
+        # 5. 프로젝트 요약
+        with st.expander("5. 프로젝트 경험", expanded=True):
+            projects = data.get("projects", [])
+            if projects:
+                for i, proj in enumerate(projects, 1):
+                    st.markdown(f"**{i}.** {proj}")
+            else:
+                st.info("아직 입력된 프로젝트 정보가 없습니다.")
+            if st.button("프로젝트 정보 수정"):
+                st.session_state.step = 4
+                st.rerun()
+
+        # 6. 기술 스택
+        with st.expander("6. 기술 스택", expanded=True):
+            skills = data.get("skills", [])
+            if skills:
+                st.markdown("\n".join(skills))
+            else:
+                st.info("기술 스택이 아직 입력되지 않았습니다.")
+            if st.button("기술 스택 수정"):
+                st.session_state.step = 5
+                st.rerun()
+
+        st.divider()
+
+        # 이력서 다운로드 옵션
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("이력서 TXT 다운로드"):
+                resume_text = build_resume_text(data)
+                if resume_text:
+                    st.download_button(
+                        "📥 다운로드",
+                        resume_text,
+                        file_name="resume.txt",
+                        mime="text/plain"
+                    )
+
+        with col2:
+            if st.button("처음으로 돌아가기"):
+                for key in st.session_state.keys():
+                    del st.session_state[key]
+                st.rerun()
 
 if __name__ == "__main__":
     main()
