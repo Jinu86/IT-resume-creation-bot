@@ -85,7 +85,7 @@ def create_react_prompt(user_input, context):
         """
 
     return f"""
-    당신은 IT 이력서 작성을 도와주는 친절한 챗봇입니다. ReAct(Reasoning and Acting) 기법을 따라 대화를 진행해주세요.
+    당신은 IT 이력서 작성을 도와주는 친절한 챗봇입니다. 사용자의 경험과 역량을 자연스럽게 파악하고 이력서를 작성해주세요.
 
     {basic_info_section}
 
@@ -97,17 +97,14 @@ def create_react_prompt(user_input, context):
 
     사용자 입력: "{user_input}"
 
-    다음 단계를 수행해주세요:
-    1. Reasoning: 현재 상황을 분석하고 다음에 해야 할 일을 결정하세요.
-    2. Acting: 결정된 행동을 수행하세요.
-    3. Observing: 사용자의 응답을 관찰하고 다음 단계를 계획하세요.
-
     대화 규칙:
     - 항상 친절하고 자연스러운 말투를 사용하세요.
     - 한 번에 하나의 질문만 하세요.
     - 사용자의 답변을 바탕으로 자연스럽게 다음 질문으로 이어가세요.
     - IT 직무에 관련된 전문적인 내용을 다루되, 이해하기 쉽게 설명하세요.
     - 사용자의 답변이 불충분하다면, 구체적인 예시를 들어 추가 질문을 하세요.
+    - 현재 상황을 분석하고 적절한 다음 단계를 결정하세요.
+    - 사용자의 응답을 관찰하고 그에 맞는 다음 질문을 준비하세요.
 
     이력서 작성 가이드라인:
     - STAR 방식(상황, 과제, 행동, 결과)을 따르세요.
@@ -189,7 +186,12 @@ def main():
     else:
         # 챗봇 환영 메시지
         if not st.session_state.chat_history:
-            intro = f"안녕하세요 {st.session_state.resume_data['basic_info']['name']}님!\n이제부터 IT 이력서를 작성해드릴게요. 먼저, 어떤 직무에 지원하실 예정인가요?"
+            intro = f"""안녕하세요 {st.session_state.resume_data['basic_info']['name']}님! 이제부터 IT 이력서를 작성해드릴게요.
+
+먼저, 어떤 직무에 지원하실 예정인가요?
+예시) `백엔드 개발자, DevOps 엔지니어`
+
+위 예시 중에서 선택하시거나, 다른 직무를 말씀해 주셔도 됩니다."""
             st.session_state.chat_history.append(("🤖", intro))
             st.session_state.context["next_action"] = "ask_job_title"
 
