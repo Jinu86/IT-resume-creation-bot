@@ -474,6 +474,10 @@ def main():
             st.session_state.chat_history.append(("🤖", intro))
             st.session_state.context["next_action"] = "ask_job_title"
 
+        # 디버깅 메시지 표시 (개발 중에만 사용)
+        if "debug_message" in st.session_state:
+            pass  # 디버그 메시지 비활성화
+
         # 대화 출력
         for sender, msg in st.session_state.chat_history:
             st.chat_message("user" if sender == "🧑" else "assistant").write(msg)
@@ -585,6 +589,7 @@ def main():
                         st.session_state.context["next_action"] = "show_resume"
                     
                     st.session_state.step_complete_confirmed = False
+                    # 단계 전환 완료
                     st.rerun()
             
             with col2:
