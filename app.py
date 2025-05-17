@@ -123,6 +123,41 @@ QUESTIONS = {
     ]
 }
 
+# 필드 정의
+FIELD_DEFINITIONS = {
+    "job_info": [
+        ("지원 직무", "지원하시는 직무를 명확하게 파악"),
+        ("관심 기술 분야", "관심 있는 기술 분야 파악"),
+        ("주로 다룬 기술", "주요 기술 스택 파악")
+    ],
+    "experience": [
+        ("회사명", "회사명 파악"),
+        ("직무", "담당 직무 파악"),
+        ("근무 기간", "근무 기간 파악"),
+        ("사용 기술", "사용한 기술 스택 파악"),
+        ("주요 업무", "주요 업무 내용 파악"),
+        ("성과/결과", "주요 성과나 결과 파악")
+    ],
+    "projects": [
+        ("프로젝트명", "프로젝트명 파악"),
+        ("기간", "프로젝트 기간 파악"),
+        ("역할", "프로젝트에서의 역할 파악"),
+        ("사용 기술", "사용한 기술 스택 파악"),
+        ("성과/결과", "프로젝트 성과나 결과 파악")
+    ],
+    "skills": [
+        ("언어", "프로그래밍 언어 숙련도 파악"),
+        ("프레임워크", "프레임워크 숙련도 파악"),
+        ("DB/인프라", "데이터베이스/인프라 숙련도 파악"),
+        ("기타 도구", "기타 개발 도구 숙련도 파악")
+    ],
+    "summary": [
+        ("간단한 자기소개", "자기소개 내용 파악"),
+        ("일하는 스타일", "업무 스타일 파악"),
+        ("커리어 방향 or 포부", "커리어 목표 파악")
+    ]
+}
+
 # 이력서 생성 관련 함수들
 def validate_resume_data(data):
     required_fields = {
@@ -517,17 +552,11 @@ def main():
                     st.session_state.context["next_action"] = "ask_more_info"
                     st.rerun()
 
-    # Step 7은 이제 결과 출력으로 바로 연결됨
+    # Step 7: 이력서 구성 요소별 출력
     if st.session_state.step == 7:
-        st.session_state.step = 8
-        st.session_state.context["next_action"] = "show_resume"
-        st.rerun()
-
-    # Step 8: 이력서 구성 요소별 출력
-    if st.session_state.step == 8:
         st.title("📄 이력서 항목별 정리")
         st.progress(1.0)
-        st.caption("Step 8/8: 이력서 최종 확인")
+        st.caption("Step 7/7: 이력서 최종 확인")
 
         data = st.session_state.resume_data
         basic_info = data.get("basic_info", {})
@@ -633,12 +662,23 @@ def main():
 
 def analyze_response(user_input: str, topic: str) -> tuple[bool, str]:
     """사용자 응답을 분석하고 수집된 정보 상태를 업데이트"""
-    current_fields = QUESTIONS.get(topic, [])
+    current_fields = FIELD_DEFINITIONS.get(topic, [])
     all_fields_complete = True
     
     for field_name, field_description in current_fields:
         # 각 필드별 분석
-        prompt = build_field_analysis_prompt(user_input, field_name, field_description)
+        prompt = f"""
+        사용자 응답: "{user_input}"
+        
+        다음 필드에 대한 정보가 충분한지 분석해주세요:
+        필드명: {field_name}
+        설명: {field_description}
+        
+        응답 형식:
+        - 충분한 정보가 있다면: [YES][ENOUGH]
+        - 일부 정보가 있지만 더 필요하다면: [YES][NEED_MORE]
+        - 정보가 없다면: [NO]
+        """
         response = model.generate_content(prompt)
         analysis = response.text.strip()
         
@@ -648,11 +688,15 @@ def analyze_response(user_input: str, topic: str) -> tuple[bool, str]:
         elif "[YES][NEED_MORE]" in analysis or "[NO]" in analysis:
             all_fields_complete = False
             # 부족한 필드에 대한 후속 질문 생성
-            followup_prompt = build_followup_question_prompt(
-                field_name, 
-                field_description, 
-                user_input
-            )
+            followup_prompt = f"""
+            이전 응답: "{user_input}"
+            
+            다음 필드에 대한 추가 정보를 요청하는 질문을 생성해주세요:
+            필드명: {field_name}
+            설명: {field_description}
+            
+            질문은 자연스럽고 친근한 말투로 작성해주세요.
+            """
             followup_response = model.generate_content(followup_prompt)
             return False, followup_response.text.strip()
     
@@ -668,13 +712,27 @@ def generate_followup_question(previous_answer, topic):
     
     # 부족한 필드에 대한 질문 생성
     field_name = incomplete_fields[0]
-    field_description = next((desc for name, desc in QUESTIONS[topic] if name == field_name), "")
+    field_description = next((desc for name, desc in FIELD_DEFINITIONS[topic] if name == field_name), "")
     
     # 첫 질문인 경우
     if not previous_answer:
-        prompt = build_followup_question_prompt(field_name, field_description)
+        prompt = f"""
+        다음 필드에 대한 질문을 생성해주세요:
+        필드명: {field_name}
+        설명: {field_description}
+        
+        질문은 자연스럽고 친근한 말투로 작성해주세요.
+        """
     else:
-        prompt = build_followup_question_prompt(field_name, field_description, previous_answer)
+        prompt = f"""
+        이전 응답: "{previous_answer}"
+        
+        다음 필드에 대한 추가 정보를 요청하는 질문을 생성해주세요:
+        필드명: {field_name}
+        설명: {field_description}
+        
+        질문은 자연스럽고 친근한 말투로 작성해주세요.
+        """
     
     response = model.generate_content(prompt)
     return response.text.strip()
