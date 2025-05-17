@@ -42,6 +42,40 @@ if "step" not in st.session_state:
         "last_response": None,
         "next_action": "ask_job_title"
     }
+    if "collected_info" not in st.session_state:
+        st.session_state.collected_info = {
+            "job_info": {
+                "지원 직무": False,
+                "관심 기술 분야": False,
+                "주로 다룬 기술": False
+            },
+            "experience": {
+                "회사명": False,
+                "직무": False,
+                "근무 기간": False,
+                "사용 기술": False,
+                "주요 업무": False,
+                "성과/결과": False
+            },
+            "projects": {
+                "프로젝트명": False,
+                "기간": False,
+                "역할": False,
+                "사용 기술": False,
+                "성과/결과": False
+            },
+            "skills": {
+                "언어": False,
+                "프레임워크": False,
+                "DB/인프라": False,
+                "기타 도구": False
+            },
+            "summary": {
+                "간단한 자기소개": False,
+                "일하는 스타일": False,
+                "커리어 방향 or 포부": False
+            }
+        }
 
 # 진행 상태 표시
 def show_progress():
@@ -418,19 +452,19 @@ def main():
         if user_input:
             st.session_state.chat_history.append(("🧑", user_input))
             st.session_state.context["last_response"] = user_input
-
-            # ReAct 기반 프롬프트 생성
-            prompt = create_react_prompt(user_input, st.session_state.context)
-            bot_response = generate_gpt_response(prompt)
             
-            # 응답 저장 및 컨텍스트 업데이트
-            st.session_state.chat_history.append(("🤖", bot_response))
-            st.session_state.context["last_response"] = bot_response
+            # 응답 분석 및 상태 업데이트
+            current_topic = st.session_state.context["current_topic"]
+            is_complete, followup = analyze_response(user_input, current_topic)
             
-            # 단계 완료 확인 및 다음 단계로 전환
-            if "STEP_COMPLETE" in bot_response:
+            if is_complete:
                 st.session_state.step_complete_confirmed = True
                 st.rerun()
+            else:
+                # 부족한 정보에 대한 후속 질문
+                bot_response = followup
+                st.session_state.chat_history.append(("🤖", bot_response))
+                st.session_state.context["last_response"] = bot_response
 
         # 단계 완료 확인 UI
         if st.session_state.step_complete_confirmed:
@@ -596,6 +630,54 @@ def main():
                 for key in st.session_state.keys():
                     del st.session_state[key]
                 st.rerun()
+
+def analyze_response(user_input: str, topic: str) -> tuple[bool, str]:
+    """사용자 응답을 분석하고 수집된 정보 상태를 업데이트"""
+    current_fields = QUESTIONS.get(topic, [])
+    all_fields_complete = True
+    
+    for field_name, field_description in current_fields:
+        # 각 필드별 분석
+        prompt = build_field_analysis_prompt(user_input, field_name, field_description)
+        response = model.generate_content(prompt)
+        analysis = response.text.strip()
+        
+        # 분석 결과에 따른 상태 업데이트
+        if "[YES][ENOUGH]" in analysis:
+            st.session_state.collected_info[topic][field_name] = True
+        elif "[YES][NEED_MORE]" in analysis or "[NO]" in analysis:
+            all_fields_complete = False
+            # 부족한 필드에 대한 후속 질문 생성
+            followup_prompt = build_followup_question_prompt(
+                field_name, 
+                field_description, 
+                user_input
+            )
+            followup_response = model.generate_content(followup_prompt)
+            return False, followup_response.text.strip()
+    
+    return all_fields_complete, ""
+
+def generate_followup_question(previous_answer, topic):
+    # 현재 단계의 수집 상태 확인
+    current_info = st.session_state.collected_info.get(topic, {})
+    incomplete_fields = [field for field, collected in current_info.items() if not collected]
+    
+    if not incomplete_fields:
+        return "STEP_COMPLETE"
+    
+    # 부족한 필드에 대한 질문 생성
+    field_name = incomplete_fields[0]
+    field_description = next((desc for name, desc in QUESTIONS[topic] if name == field_name), "")
+    
+    # 첫 질문인 경우
+    if not previous_answer:
+        prompt = build_followup_question_prompt(field_name, field_description)
+    else:
+        prompt = build_followup_question_prompt(field_name, field_description, previous_answer)
+    
+    response = model.generate_content(prompt)
+    return response.text.strip()
 
 if __name__ == "__main__":
     main()
