@@ -186,6 +186,11 @@ def build_resume_text(data):
         basic_info = data.get("basic_info", {})
         job_info = data.get("job_info", {})
         
+        # 직무 정보 처리 개선
+        job_title = job_info.get('title', '미입력')
+        job_tech = job_info.get('answer_0', '')
+        job_exp = job_info.get('answer_1', '')
+        
         resume_text = f"""
 [인적사항]
 이름: {basic_info.get('name', '미입력')}
@@ -194,28 +199,46 @@ def build_resume_text(data):
 포트폴리오: {basic_info.get('portfolio', '없음')}
 
 [지원 직무]
-직무: {job_info.get('title', '미입력')}
-주요 기술: {job_info.get('answer_0', '미입력')}
-주요 경험: {job_info.get('answer_1', '미입력')}
+직무: {job_title}
+주요 기술: {job_tech}
+주요 경험: {job_exp}
 
 [자기소개]
-{chr(10).join(data.get('summary', ['자기소개가 아직 작성되지 않았습니다.']))}
-
-[경력 및 프로젝트 경험]
 """
+        # 자기소개 정보 추가 (개선됨)
+        summaries = data.get("summary", [])
+        if summaries:
+            for summary in summaries:
+                resume_text += f"{summary}\n"
+        else:
+            resume_text += "자기소개가 아직 작성되지 않았습니다.\n"
+
+        resume_text += "\n[경력 및 프로젝트 경험]"
         # 경력 정보 추가
-        for i, exp in enumerate(data.get("experience", []), 1):
-            resume_text += f"{i}. {exp}\n"
+        experiences = data.get("experience", [])
+        if experiences:
+            for i, exp in enumerate(experiences, 1):
+                resume_text += f"\n{i}. {exp}"
+        else:
+            resume_text += "\n경력 정보가 아직 작성되지 않았습니다."
 
-        resume_text += "\n[프로젝트 경험]\n"
+        resume_text += "\n\n[프로젝트 경험]"
         # 프로젝트 정보 추가
-        for i, proj in enumerate(data.get("projects", []), 1):
-            resume_text += f"{i}. {proj}\n"
+        projects = data.get("projects", [])
+        if projects:
+            for i, proj in enumerate(projects, 1):
+                resume_text += f"\n{i}. {proj}"
+        else:
+            resume_text += "\n프로젝트 정보가 아직 작성되지 않았습니다."
 
-        resume_text += "\n[기술 스택]\n"
+        resume_text += "\n\n[기술 스택]"
         # 기술 스택 추가
-        for skill in data.get("skills", []):
-            resume_text += f"- {skill}\n"
+        skills = data.get("skills", [])
+        if skills:
+            for skill in skills:
+                resume_text += f"\n{skill}"
+        else:
+            resume_text += "\n기술 스택이 아직 작성되지 않았습니다."
 
         return resume_text
     except Exception as e:
@@ -518,7 +541,15 @@ def main():
             # 주제가 있을 경우에만 분석 수행
             if current_topic:
                 try:
+                    # 응답 분석 전에 사용자 입력 저장 (중복 저장 방지를 위해 analyze_response 함수 내에서 처리)
                     is_complete, followup = analyze_response(user_input, current_topic)
+                    
+                    # 추가: 직무 정보 처리
+                    if current_topic == "job_info" and "title" not in st.session_state.resume_data["job_info"] and user_input:
+                        # 첫 번째 응답은 직무로 간주
+                        job_words = ["개발자", "프론트엔드", "백엔드", "데브옵스", "엔지니어", "기획자"]
+                        if any(word in user_input.lower() for word in job_words):
+                            st.session_state.resume_data["job_info"]["title"] = user_input
                     
                     if is_complete:
                         st.session_state.step_complete_confirmed = True
@@ -729,7 +760,7 @@ def main():
             if skills:
                 st.markdown("\n".join(skills))
             else:
-                st.info("기술 스택이 아직 입력되지 않았습니다.")
+                st.info("기술 스택이 아직 작성되지 않았습니다.")
             if st.button("기술 스택 수정"):
                 st.session_state.step = 5
                 st.rerun()
@@ -764,6 +795,58 @@ def analyze_response(user_input: str, topic: str) -> tuple[bool, str]:
     
     if topic not in st.session_state.question_count:
         st.session_state.question_count[topic] = 0
+    
+    # 응답 저장 로직 - 현재 단계의 정보를 resume_data에 저장
+    if topic == "job_info":
+        # 직무 정보 저장
+        if "answer_" + str(st.session_state.question_count[topic]) not in st.session_state.resume_data["job_info"]:
+            st.session_state.resume_data["job_info"]["answer_" + str(st.session_state.question_count[topic])] = user_input
+    
+    elif topic == "experience":
+        # 경력 정보 저장
+        if not st.session_state.resume_data.get("experience"):
+            st.session_state.resume_data["experience"] = []
+        
+        if st.session_state.question_count[topic] == 0:
+            st.session_state.resume_data["experience"].append(user_input)
+        else:
+            # 마지막 경력 항목 업데이트
+            if st.session_state.resume_data["experience"]:
+                last_exp = st.session_state.resume_data["experience"][-1]
+                st.session_state.resume_data["experience"][-1] = f"{last_exp}\n추가 정보: {user_input}"
+            else:
+                st.session_state.resume_data["experience"].append(user_input)
+    
+    elif topic == "projects":
+        # 프로젝트 정보 저장
+        if not st.session_state.resume_data.get("projects"):
+            st.session_state.resume_data["projects"] = []
+        
+        if st.session_state.question_count[topic] == 0:
+            st.session_state.resume_data["projects"].append(user_input)
+        else:
+            # 마지막 프로젝트 항목 업데이트
+            if st.session_state.resume_data["projects"]:
+                last_proj = st.session_state.resume_data["projects"][-1]
+                st.session_state.resume_data["projects"][-1] = f"{last_proj}\n추가 정보: {user_input}"
+            else:
+                st.session_state.resume_data["projects"].append(user_input)
+    
+    elif topic == "skills":
+        # 기술 스택 정보 저장
+        if not st.session_state.resume_data.get("skills"):
+            st.session_state.resume_data["skills"] = []
+        
+        skill_entry = f"- {user_input}"
+        if skill_entry not in st.session_state.resume_data["skills"]:
+            st.session_state.resume_data["skills"].append(skill_entry)
+    
+    elif topic == "summary":
+        # 자기소개 정보 저장
+        if not st.session_state.resume_data.get("summary"):
+            st.session_state.resume_data["summary"] = []
+        
+        st.session_state.resume_data["summary"].append(user_input)
     
     # 직무 정보 특별 처리
     if topic == "job_info":
