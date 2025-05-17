@@ -483,55 +483,66 @@ def main():
         if "step_complete_confirmed" not in st.session_state:
             st.session_state.step_complete_confirmed = False
 
-        # 입력창
-        user_input = st.chat_input("답변을 입력해주세요...")
-
-        if user_input:
-            # 사용자 입력 처리 로직을 저장
-            temp_input = user_input
+        # 처리 중 상태 관리 초기화
+        if "is_processing" not in st.session_state:
+            st.session_state.is_processing = False
             
-            # 세션 상태에 처리 플래그 추가
-            if "processing_input" not in st.session_state:
-                st.session_state.processing_input = False
-                st.session_state.last_user_input = ""
-                
-            # 이전에 처리한 입력과 같은지 확인
-            if st.session_state.last_user_input == temp_input:
-                # 이미 처리된 입력이면 분석 진행
-                if st.session_state.processing_input:
-                    # 응답 분석 및 상태 업데이트
-                    current_topic = st.session_state.context.get("current_topic")
-                    if not current_topic and st.session_state.step == 2:
-                        current_topic = "job_info"
-                        st.session_state.context["current_topic"] = current_topic
+        # 처리 중일 때 로딩 표시
+        if st.session_state.is_processing:
+            with st.chat_message("assistant"):
+                with st.spinner("AI가 답변을 생성 중입니다..."):
+                    st.empty()
+        
+        # 입력창 - 처리 중일 때 비활성화
+        user_input = st.chat_input("답변을 입력해주세요...", disabled=st.session_state.is_processing)
+
+        if user_input and not st.session_state.is_processing:
+            # 사용자 입력 추가
+            st.session_state.chat_history.append(("🧑", user_input))
+            
+            # 처리 중으로 설정
+            st.session_state.is_processing = True
+            st.rerun()  # 사용자 입력과 로딩 표시 위해 재실행
+            
+        # 처리 중이고 입력이 대화 내역에 표시되어 있으면 응답 처리 진행
+        elif st.session_state.is_processing and len(st.session_state.chat_history) > 0 and st.session_state.chat_history[-1][0] == "🧑":
+            # 가장 최근 사용자 입력 가져오기
+            user_input = st.session_state.chat_history[-1][1]
+            
+            # 현재 주제 설정
+            current_topic = st.session_state.context.get("current_topic")
+            if not current_topic and st.session_state.step == 2:
+                current_topic = "job_info"
+                st.session_state.context["current_topic"] = current_topic
+            
+            # 주제가 있을 경우에만 분석 수행
+            if current_topic:
+                try:
+                    is_complete, followup = analyze_response(user_input, current_topic)
                     
-                    # 주제가 있을 경우에만 분석 수행
-                    if current_topic:
-                        is_complete, followup = analyze_response(temp_input, current_topic)
-                        
-                        if is_complete:
-                            st.session_state.step_complete_confirmed = True
-                            st.session_state.processing_input = False  # 처리 완료
-                            st.rerun()
-                        else:
-                            # 부족한 정보에 대한 후속 질문
-                            bot_response = followup
-                            st.session_state.chat_history.append(("🤖", bot_response))
-                            st.session_state.context["last_response"] = bot_response
-                            st.session_state.processing_input = False  # 처리 완료
-                            st.rerun()
-                    else:
-                        # 주제가 없는 경우 기본 응답
+                    if is_complete:
                         st.session_state.step_complete_confirmed = True
-                        st.session_state.processing_input = False  # 처리 완료
+                        # 처리 완료 설정
+                        st.session_state.is_processing = False
                         st.rerun()
+                    else:
+                        # 부족한 정보에 대한 후속 질문
+                        bot_response = followup
+                        st.session_state.chat_history.append(("🤖", bot_response))
+                        st.session_state.context["last_response"] = bot_response
+                        # 처리 완료 설정
+                        st.session_state.is_processing = False
+                        st.rerun()
+                except Exception as e:
+                    # 오류 발생 시 알림
+                    st.session_state.chat_history.append(("🤖", f"죄송합니다, 오류가 발생했습니다: {str(e)}"))
+                    st.session_state.is_processing = False
+                    st.rerun()
             else:
-                # 새로운 입력 처리
-                st.session_state.chat_history.append(("🧑", temp_input))
-                st.session_state.context["last_response"] = temp_input
-                st.session_state.last_user_input = temp_input
-                st.session_state.processing_input = True  # 처리 시작
-                st.rerun()  # 사용자 입력을 즉시 표시하기 위해 재실행
+                # 주제가 없는 경우 기본 응답
+                st.session_state.step_complete_confirmed = True
+                st.session_state.is_processing = False
+                st.rerun()
 
         # 단계 완료 확인 UI
         if st.session_state.step_complete_confirmed:
@@ -551,6 +562,9 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("네, 다음 단계로 넘어갈게요"):
+                    # 처리 중 상태 표시
+                    st.session_state.is_processing = True
+                    
                     if current_step == 2:  # 직무 확인 완료
                         st.session_state.step = 3
                         st.session_state.current_question = 0
@@ -604,14 +618,31 @@ def main():
                     elif current_step == 6:  # 자기소개 완료
                         st.session_state.step = 7
                         st.session_state.context["next_action"] = "show_resume"
+                        
+                    # 처리 완료 후 상태 업데이트
+                    st.session_state.is_processing = False
                     
                     st.session_state.step_complete_confirmed = False
                     st.rerun()
             
             with col2:
                 if st.button("아니요, 더 이야기할게 남았어요"):
+                    # 처리 중 상태로 설정
+                    st.session_state.is_processing = True
                     st.session_state.step_complete_confirmed = False
                     st.session_state.context["next_action"] = "ask_more_info"
+                    
+                    # 추가 질문 생성
+                    current_topic = st.session_state.context.get("current_topic")
+                    if current_topic:
+                        try:
+                            followup_question = f"더 자세히 알려주실 부분이 있을까요? {current_topic} 관련해서 추가로 알고 싶습니다."
+                            st.session_state.chat_history.append(("🤖", followup_question))
+                        except:
+                            pass
+                            
+                    # 처리 완료 후 상태 업데이트
+                    st.session_state.is_processing = False
                     st.rerun()
 
     # Step 7: 이력서 구성 요소별 출력
@@ -725,45 +756,77 @@ def main():
 
 def analyze_response(user_input: str, topic: str) -> tuple[bool, str]:
     """사용자 응답을 분석하고 수집된 정보 상태를 업데이트"""
-    current_fields = FIELD_DEFINITIONS.get(topic, [])
-    all_fields_complete = True
-    
-    for field_name, field_description in current_fields:
-        # 각 필드별 분석
-        prompt = f"""
-        사용자 응답: "{user_input}"
-        
-        다음 필드에 대한 정보가 충분한지 분석해주세요:
-        필드명: {field_name}
-        설명: {field_description}
-        
-        응답 형식:
-        - 충분한 정보가 있다면: [YES][ENOUGH]
-        - 일부 정보가 있지만 더 필요하다면: [YES][NEED_MORE]
-        - 정보가 없다면: [NO]
-        """
-        response = model.generate_content(prompt)
-        analysis = response.text.strip()
-        
-        # 분석 결과에 따른 상태 업데이트
-        if "[YES][ENOUGH]" in analysis:
-            st.session_state.collected_info[topic][field_name] = True
-        elif "[YES][NEED_MORE]" in analysis or "[NO]" in analysis:
-            all_fields_complete = False
-            # 부족한 필드에 대한 후속 질문 생성
-            followup_prompt = f"""
-            이전 응답: "{user_input}"
+    try:
+        # 기본 필드 정의가 있는지 확인
+        if topic not in FIELD_DEFINITIONS:
+            return True, ""
             
-            다음 필드에 대한 추가 정보를 요청하는 질문을 생성해주세요:
+        current_fields = FIELD_DEFINITIONS.get(topic, [])
+        all_fields_complete = True
+        
+        if not current_fields:
+            # 필드가 없는 경우 완료 처리
+            return True, ""
+        
+        # 무한 루프 방지
+        max_attempts = 3
+        attempts = 0
+            
+        for field_name, field_description in current_fields:
+            attempts += 1
+            if attempts > max_attempts:
+                break
+                
+            # 각 필드별 분석
+            prompt = f"""
+            사용자 응답: "{user_input}"
+            
+            다음 필드에 대한 정보가 충분한지 분석해주세요:
             필드명: {field_name}
             설명: {field_description}
             
-            질문은 자연스럽고 친근한 말투로 작성해주세요.
+            응답 형식:
+            - 충분한 정보가 있다면: [YES][ENOUGH]
+            - 일부 정보가 있지만 더 필요하다면: [YES][NEED_MORE]
+            - 정보가 없다면: [NO]
             """
-            followup_response = model.generate_content(followup_prompt)
-            return False, followup_response.text.strip()
-    
-    return all_fields_complete, ""
+            
+            try:
+                response = model.generate_content(prompt)
+                analysis = response.text.strip()
+                
+                # 분석 결과에 따른 상태 업데이트
+                if "[YES][ENOUGH]" in analysis:
+                    st.session_state.collected_info[topic][field_name] = True
+                elif "[YES][NEED_MORE]" in analysis or "[NO]" in analysis:
+                    all_fields_complete = False
+                    # 부족한 필드에 대한 후속 질문 생성
+                    followup_prompt = f"""
+                    이전 응답: "{user_input}"
+                    
+                    다음 필드에 대한 추가 정보를 요청하는 질문을 생성해주세요:
+                    필드명: {field_name}
+                    설명: {field_description}
+                    
+                    질문은 자연스럽고 친근한 말투로 작성해주세요.
+                    """
+                    followup_response = model.generate_content(followup_prompt)
+                    return False, followup_response.text.strip()
+            except Exception as e:
+                # 개별 분석 실패 시 기본 응답 제공
+                default_questions = {
+                    "job_info": "어떤 기술을 주로 사용하시나요?",
+                    "experience": "어떤 경력을 가지고 계신가요?",
+                    "projects": "주요 프로젝트에 대해 더 자세히 설명해주실 수 있을까요?",
+                    "skills": "어떤 기술 스택을 보유하고 계신가요?",
+                    "summary": "간단한 자기소개를 해주실 수 있을까요?"
+                }
+                return False, default_questions.get(topic, "더 자세한 정보를 알려주실 수 있을까요?")
+        
+        return all_fields_complete, ""
+    except Exception as e:
+        # 전체 함수 실패 시 기본 메시지 반환
+        return False, f"더 자세히 알려주실 수 있을까요? (오류가 발생했지만 계속 진행할게요)"
 
 def generate_followup_question(previous_answer, topic):
     # 현재 단계의 수집 상태 확인
